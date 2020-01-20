@@ -21,154 +21,100 @@ test.html.br  |  Brotli encoded
 
 */
 
-const zlib = require("zlib"); // zipping library, here it's used to encode the default file
-const http = require("http"); // http library, it will handle the server side stuff
-const fs = require("fs");     // file system library, used for opening file streams and modifying files
+const zlib = require('zlib'); // zipping library, here it's used to encode the default file
+const http = require('http'); // http library, it will handle the server side stuff
+const fs = require('fs'); // file system library, used for opening file streams and modifying files
+const stream = require('stream'); // stream system library, used for correctly pipelining streams for us
 
+// Here we read the test.html file and write it to the filesystem with our different encodings
+const htmlBuffer = fs.readFileSync('./test.html');
 
+zlib.gzip(htmlBuffer, (err, res) => {
+  if (!err) fs.writeFileSync('./test.html.gz', res);
+  else console.error(`Err: ${err}`);
+});
 
-// this is where the encoding magic happens:
-const encode = {
-    gzip: () => {
-        zlib.gzip(getBuffer(), (err, res) => {
-            if(!err)
-                fs.writeFileSync("./test.html.gz", res);
-            else console.error(`Err: ${err}`);
-        });
-    },
-    deflate: () => {
-        zlib.deflate(getBuffer(), (err, res) => {
-            if(!err)
-                fs.writeFileSync("./test.html.zz", res);
-            else console.error(`Err: ${err}`);
-        });
-    },
-    brotli: () => {
-        zlib.brotliCompress(getBuffer(), (err, res) => {
-            if(!err)
-                fs.writeFileSync("./test.html.br", res);
-            else console.error(`Err: ${err}`);
-        });
-    }
-}
+zlib.deflate(htmlBuffer, (err, res) => {
+  if (!err) fs.writeFileSync('./test.html.zz', res);
+  else console.error(`Err: ${err}`);
+});
 
-/**
- * Opens the to-be-encoded file and returns it as a buffer
- * @returns {Buffer}
- */
-function getBuffer()
-{
-    return fs.readFileSync("./test.html");
-}
+zlib.brotliCompress(htmlBuffer, (err, res) => {
+  if (!err) fs.writeFileSync('./test.html.br', res);
+  else console.error(`Err: ${err}`);
+});
 
-/**
- * Starts the HTTP server
- */
-function startHttpServer()
-{
-    http.createServer((req, res) => {
-        console.log(`\nGot request with method "${req.method}" from IP address "${req.connection.remoteAddress}"`);
-        if(req.method == "GET" || req.method == "OPTIONS")
-        {
-            let selectedEncoding = null;
+// encodings that are further to the left will be prioritized
+const encodingPriority = ['br', 'gzip', 'deflate'];
 
-            // encodings that are further to the left will be prioritized
-            let encodingPriority = ["br", "gzip", "deflate"];
-            encodingPriority = encodingPriority.reverse();
-
-            // get the connecting client's accepted encodings
-            let acceptedEncodings = [];
-            if(req.headers["accept-encoding"])
-                acceptedEncodings = req.headers["accept-encoding"].split(/[\,]\s*/gm);
-            acceptedEncodings = acceptedEncodings.reverse();
-            console.log(`Client supports encodings: ${acceptedEncodings.join(", ")}`);
-
-            // agree on an encoding both the server and client support and that is the furthest to the left on the encoding priority list above
-            encodingPriority.forEach(encPrio => {
-                if(acceptedEncodings.includes(encPrio))
-                    selectedEncoding = encPrio;
-            });
-
-
-            let fileName = "test.html";
-
-            if(selectedEncoding == "br")
-                fileName = "test.html.br";
-            else if(selectedEncoding == "gzip")
-                fileName = "test.html.gz";
-            else if(selectedEncoding == "deflate")
-                fileName = "test.html.zz";
-
-            if(selectedEncoding)
-                console.log(`Client and server agreed on encoding "${selectedEncoding}" (${selectedEncoding} has priority ${encodingPriority.indexOf(selectedEncoding) + 1} in range of 1-${encodingPriority.length + 1})\nSelected File: "${fileName}"`);
-            else console.log(`Client doesn't support encoding, serving content without encoding`);
-
-            // set the content-encoding header so the client knows which encoding the server used
-            if(selectedEncoding)
-                res.setHeader("Content-Encoding", selectedEncoding);
-
-            // stream the file to the client
-            return pipeFile(res, `./${fileName}`, "text/html", 200);
-        }
-    }).listen(80, null, null, (err) => {
-        if(err)
-            console.error("ERR: " + err);
-        else
-            console.log("HTTP Ok");
-    });
-}
+const encodingToFileMap = {
+  br: 'test.html.br',
+  gzip: 'test.html.gz',
+  deflate: 'test.html.zz',
+};
 
 /**
  * Pipes a file into a HTTP response
  * @param {http.ServerResponse} res The HTTP res object
  * @param {String} filePath Path to the file to respond with - relative to the project root directory
  * @param {String} mimeType The MIME type to respond with
- * @param {Number} [statusCode=200] The status code to respond with - defaults to 200
  */
-function pipeFile(res, filePath, mimeType, statusCode = 200)
-{
-    try
-    {
-        statusCode = parseInt(statusCode);
-        if(isNaN(statusCode))
-            throw new Error("err_statuscode_isnan");
-    }
-    catch(err)
-    {
-        res.writeHead(500, {"Content-Type": "text/plain; UTF-8"});
-        return res.end(`Encountered internal server error while piping file: wrong type for status code.`);
-    }
+async function pipeFile(res, filePath, mimeType) {
+  const fileExists = await fs.promises
+    .access(filePath, fs.constants.F_OK)
+    .then(() => true)
+    .catch(() => false);
 
-    if(!fs.existsSync(filePath))
-    {
-        res.writeHead(404, {"Content-Type": "text/plain; UTF-8"});
-        return res.end(`Error: Requested file "${filePath}" not found`);
-    }
+  if (!fileExists) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; UTF-8' });
+    return res.end(`Error: Requested file "${filePath}" not found`);
+  }
 
-    try
-    {
-        res.writeHead(statusCode, {
-            "Content-Type": `${mimeType}; UTF-8`,
-            "Content-Length": fs.statSync(filePath).size
-        });
+  res.writeHead(200, {
+    'Content-Type': `${mimeType}; UTF-8`,
+    'Content-Length': fs.statSync(filePath).size,
+  });
 
-        // create a read stream and pipe it to the connecting client:
-        let readStream = fs.createReadStream(filePath);
-        readStream.pipe(res);
+  // create a read stream and pipe it to the connecting client:
+  stream.pipeline(fs.createReadStream(filePath), res, err => {
+    if (err) {
+      console.error(`Encountered error while streaming file: ${err}`);
     }
-    catch(err)
-    {
-        console.log(`Internal error: ${err}`);
-
-        res.writeHead(500, {"Content-Type": "text/plain; UTF-8"});
-        return res.end(`Encountered internal server error while piping file: ${err}`);
-    }
+    return undefined;
+  });
 }
 
-// encode the file to all three encodings:
-encode.brotli();
-encode.gzip();
-encode.deflate();
-
 // start the HTTP server:
-startHttpServer();
+http
+  .createServer((req, res) => {
+    console.log(`\nGot request with method "${req.method}" from IP address "${req.connection.remoteAddress}"`);
+    if (req.method == 'GET' || req.method == 'OPTIONS') {
+      // get the connecting client's accepted encodings
+      const acceptedEncodings = (req.headers['accept-encoding'] || '').split(/,\s*/gm);
+      console.log(`Client supports encodings: ${acceptedEncodings.join(', ')}`);
+
+      // agree on an encoding both the server and client support and that is the furthest to the left on the encoding priority list above
+      const selectedEncoding = encodingPriority.find(enc => acceptedEncodings.includes(enc));
+
+      const fileName = encodingToFileMap[selectedEncoding] || 'test.html';
+
+      if (selectedEncoding)
+        console.log(
+          `Client and server agreed on encoding "${selectedEncoding}" (${selectedEncoding} has priority ${encodingPriority.indexOf(
+            selectedEncoding
+          ) + 1} in range of 1-${encodingPriority.length + 1})\nSelected File: "${fileName}"`
+        );
+      else console.log(`Client doesn't support encoding, serving content without encoding`);
+
+      // set the content-encoding header so the client knows which encoding the server used
+      if (selectedEncoding) res.setHeader('Content-Encoding', selectedEncoding);
+
+      // stream the file to the client
+      return pipeFile(res, `./${fileName}`, 'text/html');
+    }
+    res.writeHead(405).end(http.STATUS_CODES[405]);
+  })
+  .listen(8080, err => {
+    if (err) console.error('ERR: ' + err);
+    else console.log('HTTP Ok: started server on port 8080');
+  });
