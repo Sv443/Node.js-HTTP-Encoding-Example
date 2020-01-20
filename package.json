@@ -1,0 +1,13 @@
+{
+  "name": "node-http-encoding-example",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node ."
+  },
+  "author": "Sv443 <sven.fehler@web.de> (https://sv443.net/)",
+  "license": "WTFPL",
+  "homepage": "https://github.com/Sv443/Node.js-HTTP-Encoding-Example"
+}
