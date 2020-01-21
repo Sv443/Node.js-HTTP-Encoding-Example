@@ -1,6 +1,6 @@
 /*
 
-Node.js HTTP-Encoding Example by Sv443 ( https://github.com/Sv443 )
+Node.js HTTP-Encoding Example by Sv443 ( https://github.com/Sv443 ) - refactored by davidmdm ( https://github.com/davidmdm )
 Licensed under the WTFPL license - you can do whatever you want with this code (yes, absolutely everything without any conditions)
 
 This example shows how content encoding works in Node.js.
